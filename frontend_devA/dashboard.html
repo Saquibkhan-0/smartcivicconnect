@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Command center · Smart Civic Connect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<link rel="stylesheet" href="style.css">
+<style>
+[data-theme=dark] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9)}
+body{display:flex;flex-direction:column;height:100vh}
+.stats{display:flex;gap:.6rem;padding:.3rem 1rem;flex-wrap:wrap;align-items:stretch}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.4rem .9rem;min-width:110px;color:var(--muted);font-size:.85rem}
+.kpi b{display:block;font-size:1.9rem;line-height:1.1;color:var(--ink)}
+.ch{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.3rem .6rem;height:92px;width:260px}
+.bar{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;padding:.4rem 1rem;border-block:1px solid var(--line);background:var(--card)}
+.bar select{padding:.3rem;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+main{flex:1;min-height:0;display:grid;grid-template-columns:330px 1fr;gap:.8rem;padding:.8rem 1rem 1rem}
+aside{overflow:auto;border-right:1px solid var(--line);background:var(--card)}
+aside h2{font-size:1rem;margin:.7rem 1rem .3rem}
+ol{list-style:none;margin:0;padding:0}
+.item{display:flex;gap:.6rem;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;padding:.6rem 1rem;align-items:flex-start}
+.item:hover{background:var(--paper)}
+.item.new{background:rgba(79,195,180,.18)}
+.item .t b{display:block}.item small{color:var(--muted);display:block}
+.mapwrap{position:relative;min-height:320px;border-radius:18px;overflow:hidden;border:1px solid var(--edge);box-shadow:var(--shadow)}#map{position:absolute;inset:0}
+.time{position:absolute;left:1rem;right:1rem;bottom:1rem;z-index:1000;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.4rem .8rem;display:flex;gap:.8rem;align-items:center}
+.time input{flex:1}
+.dot{border-radius:50%;display:grid;place-items:center;color:#0a1030;font:700 12px sans-serif;border:2px solid #fff}
+.pulse{animation:ring 1s 5}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(255,255,255,.9)}100%{box-shadow:0 0 0 24px rgba(255,255,255,0)}}
+#toasts{position:fixed;top:4rem;right:1rem;z-index:2000;display:grid;gap:.5rem}
+.toast{background:linear-gradient(135deg,var(--brand),var(--brand2));color:var(--onbrand);font-weight:700;padding:.6rem 1rem;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.pop{min-width:210px;font:14px/1.4 "Atkinson Hyperlegible",system-ui,sans-serif;color:inherit}
+.pop img{width:100%;max-height:130px;object-fit:cover;border-radius:6px;margin-bottom:.4rem}
+.pop p{margin:.25rem 0}.pop .orig{color:var(--muted)}.pop select{width:100%;margin-top:.4rem;padding:.3rem}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+@media (max-width:800px){body{height:auto}main{grid-template-columns:1fr}.mapwrap{height:60vh}aside{max-height:40vh}.ch{width:100%}}
+</style></head>
+<body>
+<header class="top"><b>Smart Civic Connect</b>
+<nav><a href="index.html">Report</a><a href="track.html">Track</a><a href="dashboard.html" aria-current="page">Dashboard</a><button id="theme">Light / dark</button></nav></header>
+<section class="stats">
+  <div class="kpi"><b id="kT">0</b>Reports shown</div><div class="kpi"><b id="kO">0</b>Open</div>
+  <div class="kpi"><b id="kP">0</b>In progress</div><div class="kpi"><b id="kR">0</b>Resolved</div>
+  <div class="ch"><canvas id="cCat"></canvas></div><div class="ch"><canvas id="cSt"></canvas></div>
+</section>
+<div class="bar">
+  <label>Category <select id="fCat"><option value="">All</option><option>pothole</option><option>garbage</option><option>streetlight</option><option>other</option></select></label>
+  <label>Status <select id="fStat"><option value="">All</option><option>open</option><option>in_progress</option><option>resolved</option></select></label>
+  <label><input type="checkbox" id="fHeat"> Heatmap</label>
+  <button id="csv">Download CSV</button><button id="sim" hidden>Simulate new report</button>
+  <span class="legend" style="margin-left:auto"><span class="pill p-high">8–10</span> <span class="pill p-mid">5–7</span> <span class="pill p-low">1–4</span></span>
+</div>
+<main>
+  <aside><h2>Fix these first</h2><ol id="list"></ol></aside>
+  <div class="mapwrap"><div id="map"></div>
+    <div class="time"><span>Replay</span><input type="range" id="time" step="any" aria-label="Time slider"><span id="tl">Live</span></div></div>
+</main>
+<div id="toasts" role="status" aria-live="polite"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const el = (t, x, c) => { const e = document.createElement(t); if (x !== undefined) e.textContent = x; if (c) e.className = c; return e; };
+const colorOf = p => p >= 8 ? "#ff4d6d" : p >= 5 ? "#ffa62b" : "#2ee59d";
+const ts = r => Date.parse(r.created_at);
+const map = L.map("map").setView(CONFIG.CENTER, 15);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "&copy; OpenStreetMap"}).addTo(map);
+const cluster = L.markerClusterGroup({maxClusterRadius: 40}).addTo(map);
+let heat = null, reports = [], seen = null, last = "", fitted = false, live = true, markers = {};
+const fresh = new Set();
+
+Chart.defaults.color = "#aab4dc"; Chart.defaults.font.family = "Atkinson Hyperlegible, system-ui, sans-serif";
+const catChart = new Chart($("cCat"), {type: "bar", data: {labels: ["pothole", "garbage", "streetlight", "other"], datasets: [{data: [0, 0, 0, 0], backgroundColor: "#5eead4"}]},
+  options: {maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {y: {beginAtZero: true, ticks: {precision: 0}}}}});
+const stChart = new Chart($("cSt"), {type: "doughnut", data: {labels: ["open", "in progress", "resolved"], datasets: [{data: [0, 0, 0], backgroundColor: ["#ff4d6d", "#ffa62b", "#2ee59d"], borderWidth: 0}]},
+  options: {maintainAspectRatio: false, plugins: {legend: {position: "right"}}}});
+
+function toast(msg) { const t = el("div", msg, "toast"); $("toasts").append(t); setTimeout(() => t.remove(), 4500); }
+
+function popup(r) {
+  const d = el("div", undefined, "pop");
+  if (r.image_url) { const i = el("img"); i.src = CONFIG.API_BASE + r.image_url; i.alt = r.category + " photo"; i.onerror = () => i.remove(); d.append(i); }
+  const t = el("p"), pr = el("span", " Priority " + r.priority, "pill"); pr.style.background = colorOf(r.priority); pr.style.marginLeft = ".4rem";
+  t.append(el("b", r.category), pr); d.append(t);
+  if (r.description_original) d.append(el("p", r.description_original, "orig"));
+  d.append(el("p", r.description_english || ""), el("p", `Severity ${r.severity}/10. Reported ${r.duplicate_count + 1} time(s).`));
+  const s = el("select"); s.setAttribute("aria-label", "Status");
+  ["open", "in_progress", "resolved"].forEach(v => { const o = el("option", v.replace("_", " ")); o.value = v; o.selected = v === r.status; s.append(o); });
+  s.onchange = async () => {
+    if (!CONFIG.USE_SAMPLE) {
+      try {
+        const res = await fetch(`${CONFIG.API_BASE}/reports/${r.id}`, {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({status: s.value})});
+        if (!res.ok) throw 0;
+      } catch { toast("Could not update status"); s.value = r.status; return; }
+    }
+    r.status = s.value; draw();
+  };
+  d.append(s); return d;
+}
+
+const visible = () => {
+  const cat = $("fCat").value, st = $("fStat").value, t = +$("time").value;
+  return reports.filter(r => (!cat || r.category === cat) && (!st || r.status === st) && (isNaN(t) || ts(r) <= t));
+};
+
+function draw() {
+  const list = visible();
+  cluster.clearLayers(); markers = {};
+  list.forEach(r => {
+    const s = 24 + Math.min(r.duplicate_count, 6) * 3;
+    const m = L.marker([r.lat, r.lng], {icon: L.divIcon({className: "", iconSize: [s, s],
+      html: `<div class="dot${fresh.has(r.id) ? " pulse" : ""}" style="background:${colorOf(r.priority)};width:${s}px;height:${s}px;opacity:${r.status === "resolved" ? .45 : 1}">${r.priority}</div>`})}).bindPopup(() => popup(r));
+    markers[r.id] = m; cluster.addLayer(m);
+  });
+  if (heat) { map.removeLayer(heat); heat = null; }
+  if ($("fHeat").checked) heat = L.heatLayer(list.map(r => [r.lat, r.lng, r.priority / 10]), {radius: 30}).addTo(map);
+
+  const n = st => list.filter(r => r.status === st).length;
+  $("kT").textContent = list.length; $("kO").textContent = n("open"); $("kP").textContent = n("in_progress"); $("kR").textContent = n("resolved");
+  catChart.data.datasets[0].data = catChart.data.labels.map(c => list.filter(r => r.category === c).length); catChart.update();
+  stChart.data.datasets[0].data = [n("open"), n("in_progress"), n("resolved")]; stChart.update();
+
+  $("list").replaceChildren(...[...list].sort((a, b) => b.priority - a.priority || b.duplicate_count - a.duplicate_count).slice(0, 30).map(r => {
+    const li = el("li"), b = el("button", undefined, "item" + (fresh.has(r.id) ? " new" : "")), p = el("span", r.priority, "pill"), t = el("span", undefined, "t");
+    p.style.background = colorOf(r.priority);
+    t.append(el("b", r.category + (r.duplicate_count ? ` (${r.duplicate_count + 1} reports)` : "")), el("small", r.description_english));
+    b.append(p, t); b.onclick = () => cluster.zoomToShowLayer(markers[r.id], () => markers[r.id].openPopup());
+    li.append(b); return li;
+  }));
+  $("tl").textContent = live ? "Live" : new Date(+$("time").value).toLocaleString();
+  if (!fitted && list.length) { map.fitBounds(list.map(r => [r.lat, r.lng]), {padding: [40, 40], maxZoom: 16}); fitted = true; }
+}
+
+function ingest(next) {
+  if (seen) next.forEach(r => {
+    const old = seen.get(r.id);
+    if (old === undefined) { toast(`New ${r.category} report received`); fresh.add(r.id); }
+    else if (r.duplicate_count > old) { toast(`Duplicate added: now ${r.duplicate_count + 1} reports`); fresh.add(r.id); }
+  });
+  seen = new Map(next.map(r => [r.id, r.duplicate_count])); reports = next;
+  if (reports.length) { const t = reports.map(ts), s = $("time"); s.min = Math.min(...t); s.max = Math.max(...t); if (live) s.value = s.max; }
+  draw(); if (fresh.size) setTimeout(() => { fresh.clear(); draw(); }, 6000);
+}
+
+async function load() {
+  try {
+    const txt = await (await fetch(CONFIG.USE_SAMPLE ? "sample_reports.json" : CONFIG.API_BASE + "/reports")).text();
+    if (txt === last) return; last = txt; ingest(JSON.parse(txt));
+  } catch { toast("Cannot reach the server. Retrying…"); }
+}
+
+$("time").oninput = () => { live = +$("time").value >= +$("time").max; draw(); };
+["fCat", "fStat", "fHeat"].forEach(id => $(id).onchange = draw);
+$("theme").onclick = () => { const d = document.documentElement; d.dataset.theme = d.dataset.theme === "dark" ? "light" : "dark"; };
+$("csv").onclick = () => {
+  const cols = ["id", "category", "description_original", "description_english", "severity", "priority", "duplicate_count", "lat", "lng", "status", "created_at"];
+  const rows = visible().map(r => cols.map(c => `"${String(r[c]).replace(/"/g, '""')}"`).join(","));
+  const a = el("a"); a.href = URL.createObjectURL(new Blob(["\ufeff" + [cols.join(","), ...rows].join("\n")], {type: "text/csv"})); a.download = "reports.csv"; a.click();
+};
+// Demo helper (sample mode only): adds a duplicate vote or a brand-new report so you can show the live animation.
+if (CONFIG.USE_SAMPLE) {
+  $("sim").hidden = false;
+  $("sim").onclick = () => {
+    const n = reports.map(r => ({...r})), pick = n[Math.floor(Math.random() * n.length)];
+    if (Math.random() < .5) { pick.duplicate_count++; pick.priority = Math.min(10, pick.priority + 1); }
+    else {
+      const id = Math.max(...n.map(r => r.id)) + 1, now = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 19);
+      n.push({id, category: ["pothole", "garbage", "streetlight"][id % 3], description_original: "New complaint", description_english: "New complaint",
+        severity: 6, priority: 6, duplicate_count: 0, lat: CONFIG.CENTER[0] + (Math.random() - .5) * .02, lng: CONFIG.CENTER[1] + (Math.random() - .5) * .02,
+        status: "open", image_url: null, created_at: now});
+    }
+    ingest(n);
+  };
+}
+load(); setInterval(load, CONFIG.REFRESH_MS);
+</script></body></html>

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Report an issue · Smart Civic Connect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+<style>
+main{max-width:560px}
+h1{font-size:1.5rem;margin:.5rem 0 1rem}
+label,.lbl{display:block;font-weight:700;margin:1rem 0 .3rem}
+.hint{color:var(--muted);font-weight:400;font-size:.9rem}
+input[type=file],select,textarea{width:100%;padding:.6rem;border:1px solid var(--line);border-radius:6px;background:var(--card)}
+textarea{min-height:90px}
+.row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+#map{height:220px;border-radius:8px;border:1px solid var(--line);margin-top:.5rem}
+#preview{max-width:100%;max-height:200px;border-radius:8px;margin-top:.5rem;display:none}
+#rec.on{background:var(--red);color:#fff;border-color:var(--red)}
+#submit{width:100%;margin-top:1.25rem;padding:.8rem;font-size:1.05rem}
+#msg{margin-top:1rem;padding:.8rem;border-radius:8px;display:none;border:1px solid var(--line);background:var(--card)}
+#msg.err{border-color:var(--red);color:var(--red)}
+#msg dl{margin:.5rem 0 0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .8rem}
+#msg dt{color:var(--muted)}#msg dd{margin:0}
+</style></head>
+<body>
+<header class="top"><b>Smart Civic Connect</b>
+<nav><a href="index.html" aria-current="page">Report</a><a href="track.html">Track</a><a href="dashboard.html">Dashboard</a></nav></header>
+<main class="panel">
+<h1>Report a problem near you</h1>
+<form id="f" novalidate>
+  <label for="photo">Photo <span class="hint">(optional)</span></label>
+  <input type="file" id="photo" accept="image/*" capture="environment">
+  <img id="preview" alt="Selected photo preview">
+
+  <label for="text">Describe the problem <span class="hint">(any language)</span></label>
+  <textarea id="text" placeholder="Big pothole in front of the bus stop…"></textarea>
+
+  <div class="lbl">Or speak it <span class="hint">(optional)</span></div>
+  <div class="row"><button type="button" id="rec">Record voice note</button><span id="recState" class="hint"></span></div>
+  <audio id="player" controls hidden></audio>
+
+  <label for="language">Language you are using</label>
+  <select id="language"><option value="en">English</option><option value="kn">ಕನ್ನಡ (Kannada)</option><option value="hi">हिन्दी (Hindi)</option></select>
+
+  <div class="lbl">Location</div>
+  <div class="row"><button type="button" id="gps">Use my location</button><span id="locState" class="hint">Not set. Tap the button or click the map.</span></div>
+  <div id="map"></div>
+
+  <button class="primary" id="submit" type="submit">Send report</button>
+</form>
+<div id="msg" role="status" aria-live="polite"></div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let lat = null, lng = null, audioBlob = null, recorder = null, marker = null;
+
+// ---- Location: GPS button + click-on-map fallback ----
+const map = L.map("map").setView(CONFIG.CENTER, 14);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "&copy; OpenStreetMap"}).addTo(map);
+function setLoc(a, b, how) {
+  lat = a; lng = b;
+  if (marker) marker.setLatLng([a, b]); else marker = L.marker([a, b]).addTo(map);
+  map.setView([a, b], 17);
+  $("locState").textContent = `Location set (${how}): ${a.toFixed(5)}, ${b.toFixed(5)}`;
+}
+map.on("click", e => setLoc(e.latlng.lat, e.latlng.lng, "from map"));
+$("gps").onclick = () => {
+  if (!navigator.geolocation) return ($("locState").textContent = "GPS not available. Click the map to set the location.");
+  $("locState").textContent = "Finding you…";
+  navigator.geolocation.getCurrentPosition(
+    p => setLoc(p.coords.latitude, p.coords.longitude, "GPS"),
+    () => ($("locState").textContent = "GPS was blocked. Click the map to set the location."),
+    {enableHighAccuracy: true, timeout: 10000});
+};
+
+// ---- Photo preview ----
+$("photo").onchange = e => {
+  const f = e.target.files[0];
+  $("preview").style.display = f ? "block" : "none";
+  if (f) $("preview").src = URL.createObjectURL(f);
+};
+
+// ---- Voice (MediaRecorder). Voice is optional: if it fails, text + photo still work. ----
+$("rec").onclick = async () => {
+  if (recorder && recorder.state === "recording") { recorder.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    const chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      audioBlob = new Blob(chunks, {type: recorder.mimeType || "audio/webm"});
+      $("player").src = URL.createObjectURL(audioBlob); $("player").hidden = false;
+      $("rec").textContent = "Record again"; $("rec").classList.remove("on");
+      $("recState").textContent = "Voice note saved.";
+    };
+    recorder.start();
+    $("rec").textContent = "Stop recording"; $("rec").classList.add("on");
+    $("recState").textContent = "Recording…";
+  } catch (err) {
+    $("recState").textContent = "Microphone unavailable. Type your complaint instead.";
+  }
+};
+
+// ---- Submit ----
+function show(html, isErr) { const m = $("msg"); m.className = isErr ? "err" : ""; m.style.display = "block"; m.replaceChildren(); return m; }
+function showError(t) { const m = show("", true); m.textContent = t; }
+
+$("f").onsubmit = async e => {
+  e.preventDefault();
+  const photo = $("photo").files[0], text = $("text").value.trim();
+  if (!photo && !audioBlob && !text) return showError("Add a photo, a voice note, or a few words describing the problem.");
+  if (lat === null) return showError("Set the location first: tap “Use my location” or click the map.");
+
+  const fd = new FormData();               // field names must match the API contract exactly
+  if (photo) fd.append("photo", photo);
+  if (audioBlob) fd.append("audio", audioBlob, "voice.webm");
+  if (text) fd.append("text", text);
+  fd.append("lat", lat); fd.append("lng", lng);
+  fd.append("language", $("language").value);
+
+  const btn = $("submit"); btn.disabled = true;
+  btn.replaceChildren(Object.assign(document.createElement("span"), {className: "spin"}), "Analysing your report…");
+  try {
+    const res = await fetch(CONFIG.API_BASE + "/reports", {method: "POST", body: fd});
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || "Server error " + res.status);
+    const m = show("", false);
+    const h = document.createElement("b");
+    h.textContent = data.merged ? "Similar issue already reported. We added your vote." : "Report received. Thank you!";
+    const dl = document.createElement("dl");
+    [["Category", data.category], ["In English", data.description_english], ["Severity", data.severity + " / 10"],
+     ["Priority", data.priority + " / 10"], ["Reports on this issue", data.duplicate_count]].forEach(([k, v]) => {
+      const dt = document.createElement("dt"), dd = document.createElement("dd");
+      dt.textContent = k; dd.textContent = v; dl.append(dt, dd);
+    });
+    const a = document.createElement("a"); a.href = "track.html?id=" + data.id; a.textContent = "Track this report"; a.style.cssText = "display:inline-block;margin-top:.6rem;font-weight:700"; m.append(h, dl, a);
+    $("f").reset(); $("preview").style.display = "none"; $("player").hidden = true; audioBlob = null;
+    $("rec").textContent = "Record voice note"; $("recState").textContent = "";
+  } catch (err) {
+    showError("Could not send: " + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "Send report";
+  }
+};
+</script></body></html>

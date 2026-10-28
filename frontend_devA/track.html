@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Track a report · Smart Civic Connect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+main{max-width:560px}
+.row{display:flex;gap:.5rem}.row input{flex:1;padding:.6rem;border:1px solid var(--line);border-radius:6px;background:var(--card)}
+.steps{display:flex;margin:1.5rem 0;gap:.4rem}
+.steps div{flex:1;padding:.6rem;text-align:center;border-radius:6px;background:var(--card);border:1px solid var(--line);color:var(--muted)}
+.steps .on{background:linear-gradient(135deg,var(--brand),var(--brand2));color:var(--onbrand);border-color:transparent;font-weight:700}
+#out dl{display:grid;grid-template-columns:auto 1fr;gap:.2rem .8rem}#out dt{color:var(--muted)}#out dd{margin:0}
+</style></head>
+<body>
+<header class="top"><b>Smart Civic Connect</b><nav><a href="index.html">Report</a><a href="track.html" aria-current="page">Track</a><a href="dashboard.html">Dashboard</a></nav></header>
+<main class="panel">
+<h1>Track your report</h1>
+<form class="row" id="f"><input id="id" type="number" min="1" placeholder="Report number" aria-label="Report number"><button class="primary">Check status</button></form>
+<div id="out" role="status" aria-live="polite"></div>
+</main>
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+async function check() {
+  const out = $("out"); out.replaceChildren();
+  try {
+    const list = await (await fetch(CONFIG.USE_SAMPLE ? "sample_reports.json" : CONFIG.API_BASE + "/reports")).json();
+    const r = list.find(x => x.id === +$("id").value);
+    if (!r) { out.textContent = "No report with that number. Check it and try again."; return; }
+    const steps = document.createElement("div"); steps.className = "steps";
+    ["open", "in_progress", "resolved"].forEach(s => { const d = document.createElement("div"); d.textContent = s.replace("_", " "); if (s === r.status) d.className = "on"; steps.append(d); });
+    const dl = document.createElement("dl");
+    [["Category", r.category], ["Your words in English", r.description_english], ["Priority", r.priority + " / 10"], ["People who reported this", r.duplicate_count + 1]]
+      .forEach(([k, v]) => { const a = document.createElement("dt"), b = document.createElement("dd"); a.textContent = k; b.textContent = v; dl.append(a, b); });
+    out.append(steps, dl);
+  } catch { out.textContent = "Cannot reach the server. Try again in a moment."; }
+}
+$("f").onsubmit = e => { e.preventDefault(); check(); };
+const q = new URLSearchParams(location.search).get("id"); if (q) { $("id").value = q; check(); }
+</script></body></html>
